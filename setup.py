@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name="disease-prediction-system",
     version="1.0.0",
-    author="Your Name",
+    author="Amira YAA",
     description="AI-Powered Disease Prediction System using Symptom Analysis",
     packages=find_packages(),
     python_requires=">=3.8",
