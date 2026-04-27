@@ -101,7 +101,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Initialize session state with persistence flags
+# Initialize session state
 if 'model_loaded' not in st.session_state:
     st.session_state.model_loaded = False
 if 'model' not in st.session_state:
@@ -122,39 +122,81 @@ if 'model_accuracy' not in st.session_state:
     st.session_state.model_accuracy = 0
 
 # ============================================
-# DATA LOADING - FULL DATASET
+# DATA LOADING - WITH MANUAL TOKEN INPUT
 # ============================================
 
-@st.cache_data(ttl=86400)
-def load_data():
-    """Load FULL dataset from Kaggle (no sampling)"""
+def get_kaggle_token():
+    """Get Kaggle token from multiple sources"""
     
-    api_token = None
+    # Try Streamlit secrets
     try:
-        api_token = st.secrets.get("KAGGLE_API_TOKEN")
+        token = st.secrets.get("KAGGLE_API_TOKEN")
+        if token:
+            return token
     except:
         pass
     
-    if not api_token:
-        api_token = os.environ.get("KAGGLE_API_TOKEN")
+    # Try environment variable
+    token = os.environ.get("KAGGLE_API_TOKEN")
+    if token:
+        return token
     
+    # Try .env file
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+        token = os.environ.get("KAGGLE_API_TOKEN")
+        if token:
+            return token
+    except:
+        pass
+    
+    return None
+
+@st.cache_data(ttl=86400)
+def load_data():
+    """Load FULL dataset from Kaggle"""
+    
+    # Get token
+    api_token = get_kaggle_token()
+    
+    # If no token found, show input box
     if not api_token:
-        st.error("❌ Kaggle API token not found!")
-        st.markdown("""
-        ### Please add your Kaggle API token:
+        st.warning("🔑 Kaggle API token required to load the dataset")
         
-        **For Streamlit Cloud:**
-        1. Go to Settings → Secrets
-        2. Add: `KAGGLE_API_TOKEN = "your_token_here"`
-        """)
+        # Create a text input for manual token entry
+        with st.form("kaggle_token_form"):
+            st.markdown("""
+            ### Please enter your Kaggle API Token:
+            
+            You can get your token from: https://www.kaggle.com/settings
+            Click "Create New Token" and copy the token value.
+            """)
+            
+            user_token = st.text_input("KAGGLE_API_TOKEN:", type="password", 
+                                       placeholder="KGAT_xxxxxxxxxxxxxxxxxxxx")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                submitted = st.form_submit_button("✅ Load Dataset", use_container_width=True)
+            with col2:
+                st.markdown("[Get Kaggle Token](https://www.kaggle.com/settings)")
+            
+            if submitted and user_token:
+                # Store the token in session state for this session
+                st.session_state.user_token = user_token
+                os.environ['KAGGLE_API_TOKEN'] = user_token
+                st.rerun()
+        
         st.stop()
     
+    # Set the token
     os.environ['KAGGLE_API_TOKEN'] = api_token
     
     try:
         import kagglehub
         
-        with st.spinner('📥 Loading FULL dataset (96,088 records) from Kaggle...'):
+        with st.spinner('📥 Loading FULL dataset (96,088 records) from Kaggle... This may take 2-3 minutes...'):
             path = kagglehub.dataset_download("rajawatprateek/symptomchecker-multi-disease-diagnostic-data")
             
             csv_file = None
@@ -165,15 +207,15 @@ def load_data():
             
             if csv_file:
                 df = pd.read_csv(csv_file)
-                # NO SAMPLING - use full dataset
                 st.success(f"✅ Loaded {len(df):,} records with {len(df.columns)-1} symptoms")
                 return df
             else:
-                st.error("CSV file not found")
+                st.error("CSV file not found in downloaded dataset")
                 st.stop()
                 
     except Exception as e:
         st.error(f"Failed to load data: {str(e)}")
+        st.info("Please check your Kaggle API token and internet connection.")
         st.stop()
 
 # ============================================
@@ -399,6 +441,7 @@ def display_predictor(df):
         if not success:
             st.error("Failed to load/train model")
             return
+        st.success(f"✅ Model Ready! Accuracy: {accuracy*100:.1f}%")
     
     # Controls
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -584,7 +627,7 @@ def display_about():
     - **Symptoms:** 230 features
     - **Diseases:** 100 conditions
     
-    ### 🩺 Symptom Categories (12 categories, 113 symptoms)
+    ### 🩺 Symptom Categories (12 categories)
     - 🧠 Mental & Emotional (13)
     - ❤️ Cardiovascular (8)
     - 🫁 Respiratory (11)
@@ -636,7 +679,7 @@ def main():
         
         st.markdown("---")
         st.markdown("### 🩺 Categories")
-        for category in list(symptom_categories.keys())[:8]:  # Show first 8
+        for category in list(symptom_categories.keys())[:8]:
             st.markdown(f"- {category}")
     
     # Page routing
