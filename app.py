@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
+import plotly.express as px
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
@@ -9,89 +9,8 @@ import os
 import warnings
 warnings.filterwarnings('ignore')
 
-# ============================================
-# SYMPTOM CATEGORIES (Your exact categories)
-# ============================================
-
-symptom_categories = {
-    "🧠 Mental & Emotional": [
-        "anxiety and nervousness", "depression", "restlessness", "excessive anger",
-        "fears and phobias", "low self-esteem", "obsessions and compulsions",
-        "hostile behavior", "antisocial behavior", "hysterical behavior",
-        "temper problems", "insomnia", "sleepiness"
-    ],
-    "❤️ Cardiovascular": [
-        "shortness of breath", "chest tightness", "palpitations", "irregular heartbeat",
-        "sharp chest pain", "increased heart rate", "decreased heart rate",
-        "chest pain", "peripheral edema"
-    ],
-    "🫁 Respiratory": [
-        "cough", "wheezing", "difficulty breathing", "coughing up sputum",
-        "hemoptysis", "congestion in chest", "abnormal breathing sounds",
-        "nasal congestion", "sore throat", "hoarse voice", "sinus congestion"
-    ],
-    "🍽️ Digestive": [
-        "nausea", "vomiting", "diarrhea", "abdominal pain", "heartburn",
-        "constipation", "blood in stool", "upper abdominal pain",
-        "stomach bloating", "changes in stool appearance", "melena",
-        "difficulty in swallowing", "regurgitation", "burning abdominal pain"
-    ],
-    "🧠 Neurological": [
-        "headache", "dizziness", "seizures", "loss of sensation",
-        "paresthesia", "focal weakness", "problems with movement",
-        "tremors", "memory disturbance", "delusions or hallucinations"
-    ],
-    "🚽 Genitourinary": [
-        "painful urination", "frequent urination", "blood in urine",
-        "vaginal discharge", "vaginal itching", "pelvic pain",
-        "vaginal pain", "vaginal redness", "involuntary urination",
-        "retention of urine", "pain during intercourse", "infertility"
-    ],
-    "🦴 Musculoskeletal": [
-        "back pain", "joint pain", "muscle weakness", "leg pain",
-        "hip pain", "knee pain", "shoulder pain", "neck pain",
-        "arm pain", "wrist pain", "ankle pain", "muscle cramps",
-        "low back pain", "side pain", "rib pain"
-    ],
-    "🩻 Skin & Appearance": [
-        "skin rash", "skin lesion", "itching of skin", "acne or pimples",
-        "skin growth", "abnormal appearing skin", "skin dryness",
-        "skin swelling", "skin moles", "diaper rash"
-    ],
-    "👁️ Eye & Vision": [
-        "diminished vision", "double vision", "pain in eye",
-        "eye redness", "lacrimation", "itchiness of eye",
-        "blindness", "spots or clouds in vision", "foreign body sensation"
-    ],
-    "🦻 Ear, Nose & Throat": [
-        "ear pain", "ringing in ear", "plugged feeling in ear",
-        "itchy ear(s)", "fluid in ear", "sore throat", 
-        "hoarse voice", "difficulty speaking"
-    ],
-    "🩸 Systemic & General": [
-        "fever", "fatigue", "weakness", "chills", "sweating",
-        "weight gain", "loss of appetite", "flu-like syndrome", 
-        "feeling ill", "ache all over"
-    ],
-    "👶 Pregnancy & Reproductive": [
-        "pain during pregnancy", "spotting or bleeding during pregnancy",
-        "uterine contractions", "recent pregnancy", "problems during pregnancy",
-        "intermenstrual bleeding", "heavy menstrual flow", "painful menstruation",
-        "long menstrual periods", "unpredictable menstruation"
-    ]
-}
-
-# Flatten for category lookup
-all_categorized_symptoms = set()
-for symptoms in symptom_categories.values():
-    all_categorized_symptoms.update(symptoms)
-
-def get_symptom_category(symptom):
-    """Return the category for a given symptom"""
-    for category, symptoms in symptom_categories.items():
-        if symptom in symptoms:
-            return category
-    return "📌 Other Symptoms"
+# Import symptom categories
+from src.symptom_categories import SYMPTOM_CATEGORIES, get_category_for_symptom
 
 # Page config
 st.set_page_config(
@@ -162,15 +81,20 @@ def create_sample_data():
     diseases = [
         'Common Cold', 'Influenza', 'Allergic Rhinitis', 'Asthma', 
         'Migraine', 'Gastroenteritis', 'Sinusitis', 'Bronchitis',
-        'UTI', 'Tonsillitis', 'Anxiety Disorder', 'Major Depression', 
-        'GERD', 'Hypertension', 'Osteoarthritis', 'Panic Disorder'
+        'UTI', 'Tonsillitis', 'Anxiety', 'Depression', 'GERD',
+        'Hypertension', 'Arthritis'
     ]
     
-    # Get all symptoms from categories
-    all_symptoms = []
-    for symptoms in symptom_categories.values():
-        all_symptoms.extend(symptoms)
-    all_symptoms = list(set(all_symptoms))
+    symptoms = [
+        'anxiety', 'depression', 'insomnia', 'irritability',
+        'cough', 'shortness_of_breath', 'wheezing', 'runny_nose', 'sneezing',
+        'nausea', 'vomiting', 'abdominal_pain', 'diarrhea', 'heartburn',
+        'headache', 'dizziness', 'migraine',
+        'chest_pain', 'palpitations', 'high_blood_pressure',
+        'muscle_pain', 'joint_pain', 'back_pain',
+        'burning_urination', 'frequent_urination',
+        'sore_throat', 'ear_pain'
+    ]
     
     data = []
     
@@ -179,22 +103,27 @@ def create_sample_data():
         
         for _ in range(samples_per_disease):
             row = {'diseases': disease}
-            for symptom in all_symptoms:
-                # Create realistic patterns
-                if disease in ['Anxiety Disorder', 'Panic Disorder']:
-                    prob = 0.7 if symptom in ['anxiety and nervousness', 'palpitations', 'insomnia', 'restlessness'] else 0.05
-                elif disease in ['Major Depression']:
-                    prob = 0.7 if symptom in ['depression', 'insomnia', 'fatigue', 'loss of appetite'] else 0.05
-                elif disease == 'Common Cold':
-                    prob = 0.7 if symptom in ['cough', 'nasal congestion', 'sore throat', 'sneezing'] else 0.05
+            for symptom in symptoms:
+                if disease == 'Common Cold':
+                    prob = 0.7 if symptom in ['cough', 'runny_nose', 'sneezing', 'sore_throat'] else 0.05
                 elif disease == 'Influenza':
-                    prob = 0.7 if symptom in ['fever', 'fatigue', 'muscle weakness', 'cough'] else 0.05
+                    prob = 0.8 if symptom in ['muscle_pain', 'headache', 'fatigue', 'cough'] else 0.05
                 elif disease == 'Migraine':
-                    prob = 0.7 if symptom in ['headache', 'nausea', 'dizziness', 'diminished vision'] else 0.05
+                    prob = 0.8 if symptom in ['headache', 'nausea', 'dizziness', 'migraine'] else 0.05
                 elif disease == 'Gastroenteritis':
-                    prob = 0.7 if symptom in ['nausea', 'vomiting', 'diarrhea', 'abdominal pain'] else 0.05
+                    prob = 0.8 if symptom in ['nausea', 'vomiting', 'diarrhea', 'abdominal_pain'] else 0.05
+                elif disease == 'Anxiety':
+                    prob = 0.8 if symptom in ['anxiety', 'palpitations', 'insomnia', 'dizziness'] else 0.05
+                elif disease == 'Depression':
+                    prob = 0.8 if symptom in ['depression', 'insomnia', 'fatigue', 'anxiety'] else 0.05
                 elif disease == 'GERD':
-                    prob = 0.7 if symptom in ['heartburn', 'chest tightness', 'regurgitation'] else 0.05
+                    prob = 0.8 if symptom in ['heartburn', 'chest_pain', 'nausea'] else 0.05
+                elif disease == 'Asthma':
+                    prob = 0.8 if symptom in ['wheezing', 'shortness_of_breath', 'cough'] else 0.05
+                elif disease == 'Hypertension':
+                    prob = 0.7 if symptom in ['high_blood_pressure', 'headache', 'dizziness'] else 0.05
+                elif disease == 'Arthritis':
+                    prob = 0.8 if symptom in ['joint_pain', 'muscle_pain', 'stiffness'] else 0.05
                 else:
                     prob = 0.05
                 
@@ -251,7 +180,7 @@ def train_model_safe(df):
         return False, 0
 
 def predict_disease(selected_symptoms, model, features, encoder):
-    """Make prediction with selected symptoms"""
+    """Make prediction with selected symptoms and return all probabilities"""
     
     input_vector = np.zeros(len(features))
     for symptom in selected_symptoms:
@@ -260,7 +189,6 @@ def predict_disease(selected_symptoms, model, features, encoder):
     
     all_probabilities = model.predict_proba([input_vector])[0]
     
-    # Get top 7 predictions
     top_7_idx = np.argsort(all_probabilities)[-7:][::-1]
     top_7_diseases = encoder.inverse_transform(top_7_idx)
     top_7_probs = all_probabilities[top_7_idx]
@@ -274,7 +202,7 @@ def predict_disease(selected_symptoms, model, features, encoder):
         'primary_confidence': primary_confidence,
         'top_7': list(zip(top_7_diseases, top_7_probs)),
         'all_probabilities': all_probabilities,
-        'all_diseases': encoder.classes_
+        'disease_encoder': encoder
     }
 
 # Main app
@@ -283,27 +211,20 @@ def main():
     st.markdown("*Select your symptoms below to get a disease prediction*")
     st.markdown("---")
     
-    # Load data
     if st.session_state.df is None:
         with st.spinner("📊 Loading medical data..."):
             st.session_state.df = load_data()
     df = st.session_state.df
     
-    # ============================================
     # SIDEBAR - Dataset Information
-    # ============================================
     with st.sidebar:
-        st.image("https://cdn-icons-png.flaticon.com/512/2968/2968621.png", width=80)
+        st.image("https://cdn-icons-png.flaticon.com/512/2968/2968621.png", width=100)
         st.markdown("# 📊 Dataset Info")
         st.markdown("---")
         
         st.markdown("### 📈 Overview")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Patients", f"{len(df):,}")
-        with col2:
-            st.metric("Diseases", df['diseases'].nunique())
-        
+        st.metric("Total Patients", f"{len(df):,}")
+        st.metric("Diseases", df['diseases'].nunique())
         st.metric("Symptoms", len(df.columns)-1)
         
         st.markdown("---")
@@ -320,33 +241,32 @@ def main():
         st.markdown("### 🏥 Top Diseases")
         top_diseases = df['diseases'].value_counts().head(5)
         for disease, count in top_diseases.items():
-            st.text(f"• {disease[:25]}: {count}")
+            st.text(f"• {disease[:20]}: {count}")
         
         st.markdown("---")
         
-        st.markdown("### 🩺 Categories")
-        for category in symptom_categories.keys():
-            st.text(f"• {category}")
+        st.markdown("### 🩺 Symptom Categories")
+        available_symptoms = set(df.columns)
+        for category, symptoms in SYMPTOM_CATEGORIES.items():
+            available = [s for s in symptoms if s in available_symptoms]
+            if available:
+                st.text(f"• {category}: {len(available)} symptoms")
         
         st.markdown("---")
         
         st.markdown("### ℹ️ About")
         st.info("""
-        **AI Medical Assistant**
+        **AI-Powered Medical Diagnosis Assistant**
         
-        - 12 symptom categories
+        - Predicts diseases based on symptoms
         - Random Forest ML model
         - Shows Top 7 possibilities
         - 80%+ accuracy
         
-        ⚠️ *For educational purposes only*
+        ⚠️ **Disclaimer:** For educational purposes only. Always consult a healthcare provider.
         """)
     
-    # ============================================
     # MAIN CONTENT - Disease Predictor
-    # ============================================
-    
-    # Train model if not already trained
     if not st.session_state.model_trained:
         st.info("🤖 Preparing AI model for prediction...")
         success, accuracy = train_model_safe(df)
@@ -358,36 +278,30 @@ def main():
             st.error("❌ Failed to initialize model. Please refresh.")
             return
     
-    # Get available symptoms from dataset
     available_symptoms = set(df.columns)
-    
-    # Selected symptoms list
     selected_symptoms = []
     
-    # Create tabs for each symptom category
-    tabs = st.tabs(list(symptom_categories.keys()))
+    tabs = st.tabs(list(SYMPTOM_CATEGORIES.keys()))
     
-    for tab, (category, symptoms) in zip(tabs, symptom_categories.items()):
+    for tab, (category, symptoms) in zip(tabs, SYMPTOM_CATEGORIES.items()):
         with tab:
-            # Filter symptoms that exist in dataset
             available_in_category = [s for s in symptoms if s in available_symptoms]
             
             if available_in_category:
                 st.markdown(f"**Select symptoms from {category}**")
-                st.caption(f"📋 {len(available_in_category)} symptoms available")
-                
-                # Display symptoms in 3 columns
                 cols = st.columns(3)
                 for idx, symptom in enumerate(available_in_category):
-                    # Clean symptom name for display
                     display_name = symptom.replace('_', ' ').title()
                     if cols[idx % 3].checkbox(display_name, key=f"{category}_{symptom}"):
                         selected_symptoms.append(symptom)
             else:
-                st.info(f"No symptoms from {category} available in the current dataset")
+                st.info(f"No symptoms from {category} available in dataset")
     
-    # Other symptoms not in categories
-    other_symptoms = [s for s in available_symptoms if s != 'diseases' and s not in all_categorized_symptoms]
+    all_categorized = set()
+    for symptoms in SYMPTOM_CATEGORIES.values():
+        all_categorized.update(symptoms)
+    
+    other_symptoms = [s for s in available_symptoms if s != 'diseases' and s not in all_categorized]
     
     if other_symptoms:
         with st.expander(f"📌 Other Symptoms ({len(other_symptoms)} available)"):
@@ -404,17 +318,13 @@ def main():
                 if cols[idx % 3].checkbox(display_name, key=f"other_{symptom}"):
                     selected_symptoms.append(symptom)
     
-    # Prediction button
     st.markdown("---")
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
         predict_btn = st.button("🔮 PREDICT DISEASE", type="primary", use_container_width=True)
     
-    # ============================================
-    # PREDICTION RESULTS
-    # ============================================
-    
+    # Prediction results with TOP 7
     if predict_btn:
         if len(selected_symptoms) == 0:
             st.warning("⚠️ Please select at least one symptom before predicting")
@@ -436,20 +346,17 @@ def main():
                     confidence = result['primary_confidence']
                     if confidence > 0.7:
                         color = "#27ae60"
-                        confidence_level = "HIGH CONFIDENCE"
-                        emoji = "🎯"
+                        confidence_level = "High Confidence"
                     elif confidence > 0.4:
                         color = "#f39c12"
-                        confidence_level = "MEDIUM CONFIDENCE"
-                        emoji = "✅"
+                        confidence_level = "Medium Confidence"
                     else:
                         color = "#e74c3c"
-                        confidence_level = "LOW CONFIDENCE"
-                        emoji = "⚠️"
+                        confidence_level = "Low Confidence"
                     
                     st.markdown(f"""
                     <div style="background-color: {color}; padding: 30px; border-radius: 15px; color: white; text-align: center;">
-                        <h3 style="margin: 0;">{emoji} Most Likely Disease</h3>
+                        <h3 style="margin: 0;">Most Likely Disease</h3>
                         <h1 style="margin: 10px 0; font-size: 2.5em;">{result['primary'].upper()}</h1>
                         <h2 style="margin: 0;">{confidence_level}: {confidence*100:.1f}%</h2>
                     </div>
@@ -457,31 +364,30 @@ def main():
                     
                     # TOP 7 POSSIBILITIES
                     st.markdown("### 📊 Top 7 Possible Diseases")
-                    st.caption("Showing all 7 possibilities with confidence scores")
                     
                     for i, (disease, prob) in enumerate(result['top_7'], 1):
                         if i == 1:
                             bar_color = "#27ae60"
-                            icon = "🏆"
+                            icon = "🏆 "
                         elif i <= 3:
                             bar_color = "#3498db"
-                            icon = "⭐"
+                            icon = "⭐ "
                         elif i <= 5:
                             bar_color = "#f39c12"
-                            icon = "📌"
+                            icon = "📌 "
                         else:
                             bar_color = "#95a5a6"
-                            icon = "🔹"
+                            icon = "🔹 "
                         
                         st.markdown(f"""
-                        <div style="margin-bottom: 15px;">
+                        <div style="margin-bottom: 12px;">
                             <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                                <span><b>{i}.</b> {icon} <b>{disease}</b></span>
-                                <span style="color: {bar_color}; font-weight: bold;">{prob*100:.1f}%</span>
+                                <span><b>{i}.</b> {icon}{disease}</span>
+                                <span><b>{prob*100:.1f}%</b></span>
                             </div>
                             <div style="background-color: #ecf0f1; border-radius: 10px; overflow: hidden;">
-                                <div style="background-color: {bar_color}; width: {prob*100}%; height: 35px; border-radius: 10px; line-height: 35px; padding-left: 10px; color: white; font-size: 14px;">
-                                    {'★ TOP PREDICTION' if i == 1 else ' '}
+                                <div style="background-color: {bar_color}; width: {prob*100}%; height: 30px; border-radius: 10px; line-height: 30px; padding-left: 10px; color: white; font-size: 14px;">
+                                    {'★ TOP PREDICTION' if i == 1 else ''}
                                 </div>
                             </div>
                         </div>
@@ -491,51 +397,21 @@ def main():
                     st.markdown("### ✅ Selected Symptoms")
                     st.markdown(f"**{len(selected_symptoms)} symptoms selected:**")
                     
-                    # Group selected symptoms by category
                     symptoms_by_category = {}
                     for symptom in selected_symptoms:
-                        category = get_symptom_category(symptom)
+                        category = get_category_for_symptom(symptom)
                         if category not in symptoms_by_category:
                             symptoms_by_category[category] = []
                         symptoms_by_category[category].append(symptom)
                     
-                    # Display symptoms by category
                     for category, symptoms_list in symptoms_by_category.items():
                         with st.expander(f"{category} ({len(symptoms_list)})"):
-                            display_symptoms = [s.replace('_', ' ').title() for s in symptoms_list]
-                            st.markdown("\n".join([f"- {s}" for s in display_symptoms[:20]]))
-                            if len(symptoms_list) > 20:
-                                st.markdown(f"... and {len(symptoms_list)-20} more")
+                            for symptom in symptoms_list[:15]:
+                                display_name = symptom.replace('_', ' ').title()
+                                st.markdown(f"- {display_name}")
+                            if len(symptoms_list) > 15:
+                                st.markdown(f"... and {len(symptoms_list)-15} more")
                 
-                # Probability bar chart
-                st.markdown("### 📈 Probability Distribution")
-                
-                # Get top 10 for chart
-                top_10_idx = np.argsort(result['all_probabilities'])[-10:][::-1]
-                top_10_diseases = result['all_diseases'][top_10_idx]
-                top_10_probs = result['all_probabilities'][top_10_idx]
-                
-                fig, ax = plt.subplots(figsize=(10, 5))
-                colors = ['#27ae60', '#3498db', '#f39c12', '#e67e22', '#e74c3c', 
-                         '#9b59b6', '#1abc9c', '#34495e', '#95a5a6', '#7f8c8d']
-                
-                bars = ax.barh(range(len(top_10_diseases)), top_10_probs, color=colors[:len(top_10_diseases)])
-                ax.set_yticks(range(len(top_10_diseases)))
-                ax.set_yticklabels([d[:30] for d in top_10_diseases])
-                ax.set_xlabel('Probability')
-                ax.set_title('Top 10 Disease Probabilities')
-                ax.set_xlim(0, 1)
-                
-                # Add value labels
-                for i, (bar, prob) in enumerate(zip(bars, top_10_probs)):
-                    ax.text(prob + 0.01, bar.get_y() + bar.get_height()/2, 
-                           f'{prob:.1%}', va='center', fontweight='bold')
-                
-                plt.tight_layout()
-                st.pyplot(fig)
-                plt.close()
-                
-                # Disclaimer
                 st.markdown("---")
                 st.caption("⚠️ **Medical Disclaimer:** This is an AI prediction tool for educational purposes only. Always consult a healthcare professional for proper diagnosis.")
 
