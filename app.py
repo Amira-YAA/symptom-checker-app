@@ -493,7 +493,7 @@ def symptom_pattern_analyzer(df, symptom_cols):
 # ============================================
 
 def display_predictor(df):
-    """Main prediction interface with full symptom list"""
+    """Main prediction interface with selection persistence"""
     
     st.markdown("*Select your symptoms below to get a prediction*")
     st.markdown("---")
@@ -511,6 +511,10 @@ def display_predictor(df):
     with col1:
         if st.button("🗑️ Reset All", use_container_width=True):
             st.session_state.reset_trigger += 1
+            # Clear all stored selections
+            st.session_state.selected_symptoms = []
+            if 'other_selected_symptoms' in st.session_state:
+                del st.session_state.other_selected_symptoms
             st.rerun()
     with col2:
         selected_count = len(st.session_state.get('selected_symptoms', []))
@@ -523,6 +527,9 @@ def display_predictor(df):
     with col3:
         if st.button("Clear All", use_container_width=True):
             st.session_state.reset_trigger += 1
+            st.session_state.selected_symptoms = []
+            if 'other_selected_symptoms' in st.session_state:
+                del st.session_state.other_selected_symptoms
             st.rerun()
     
     st.markdown("---")
@@ -542,6 +549,10 @@ def display_predictor(df):
     col1, col2 = st.columns(2)
     mid = len(category_order) // 2
     
+    # Initialize stored selections if not exists
+    if 'other_selected_symptoms' not in st.session_state:
+        st.session_state.other_selected_symptoms = {}
+    
     for idx, category in enumerate(category_order):
         with col1 if idx < mid else col2:
             if category in symptom_categories:
@@ -552,14 +563,18 @@ def display_predictor(df):
                         for i, symptom in enumerate(available):
                             name = symptom.replace('_', ' ').title()
                             key = f"{category}_{symptom}_{reset_key}"
-                            if cols[i % 2].checkbox(name, key=key):
+                            
+                            # Check if previously selected
+                            default_value = symptom in st.session_state.selected_symptoms
+                            
+                            if cols[i % 2].checkbox(name, key=key, value=default_value):
                                 selected_symptoms.append(symptom)
     
     # ============================================
-    # OTHER SYMPTOMS - FIXED TO SHOW ALL 110+
+    # OTHER SYMPTOMS - WITH SELECTION PERSISTENCE
     # ============================================
     
-    other = [s for s in available_symptoms if s != 'diseases' and s not in all_categorized_symptoms]
+    other = sorted([s for s in available_symptoms if s != 'diseases' and s not in all_categorized_symptoms])
     
     if other:
         # Session state for pagination
@@ -575,11 +590,13 @@ def display_predictor(df):
             if search:
                 filtered = [s for s in other if search.lower() in s.lower()]
                 st.caption(f"Found {len(filtered)} matching symptoms")
+                # Reset to page 1 when searching
+                st.session_state[pagination_key] = 0
             else:
                 filtered = other
             
             # Pagination settings
-            items_per_page = 30  # Show 30 symptoms per page
+            items_per_page = 30
             total_pages = (len(filtered) + items_per_page - 1) // items_per_page
             
             # Pagination controls
@@ -604,30 +621,33 @@ def display_predictor(df):
             end_idx = min(start_idx + items_per_page, len(filtered))
             current_page_items = filtered[start_idx:end_idx]
             
-            # Display symptoms in 3 columns
+            # Display symptoms in 3 columns with persisted selections
             cols = st.columns(3)
             for i, symptom in enumerate(current_page_items):
                 name = symptom.replace('_', ' ').title()
-                key = f"other_{symptom}_{reset_key}_{i}"
-                if cols[i % 3].checkbox(name, key=key):
+                key = f"other_{symptom}_{reset_key}"
+                
+                # Check if previously selected (from session state)
+                default_value = symptom in st.session_state.selected_symptoms
+                
+                # Add to a temporary list if checked
+                if cols[i % 3].checkbox(name, key=key, value=default_value):
                     selected_symptoms.append(symptom)
             
             # Show progress
             st.caption(f"Showing {start_idx + 1} - {end_idx} of {len(filtered)} symptoms")
-            
-            # Reset page when search changes
-            if search:
-                st.session_state[pagination_key] = 0
     
-    st.session_state.selected_symptoms = selected_symptoms
+    # Merge with existing selected symptoms and remove duplicates
+    all_selected = list(set(selected_symptoms))
+    st.session_state.selected_symptoms = all_selected
     
     st.markdown("---")
     if st.button("🔮 PREDICT DISEASE", type="primary", use_container_width=True):
-        if not selected_symptoms:
+        if not all_selected:
             st.warning("⚠️ Please select at least one symptom")
         else:
             with st.spinner("🔄 Analyzing symptoms with AI..."):
-                result = predict_disease(selected_symptoms, st.session_state.model,
+                result = predict_disease(all_selected, st.session_state.model,
                                         st.session_state.features, st.session_state.disease_encoder)
                 
                 st.markdown("## 🎯 Prediction Results")
@@ -689,19 +709,33 @@ def display_predictor(df):
                         st.rerun()
                 
                 with col2:
-                    st.markdown(f"### Selected Symptoms ({len(selected_symptoms)})")
+                    st.markdown(f"### Selected Symptoms ({len(all_selected)})")
                     by_cat = {}
-                    for s in selected_symptoms:
+                    for s in all_selected:
                         cat = get_symptom_category(s)
                         by_cat.setdefault(cat, []).append(s)
                     
+                    # Show selected by category
                     for cat, syms in by_cat.items():
                         with st.expander(f"{cat} ({len(syms)})"):
-                            for s in syms[:20]:
-                                st.markdown(f"- {s.replace('_', ' ').title()}")
-                            if len(syms) > 20:
-                                st.markdown(f"... and {len(syms)-20} more")
+                            display_syms = [s.replace('_', ' ').title() for s in syms]
+                            for s in display_syms[:25]:
+                                st.markdown(f"- {s}")
+                            if len(syms) > 25:
+                                st.markdown(f"... and {len(syms)-25} more")
+                    
+                    # Option to clear all from results page
+                    if st.button("🗑️ Clear All Selections", use_container_width=True):
+                        st.session_state.selected_symptoms = []
+                        st.session_state.reset_trigger += 1
+                        st.rerun()
                 
+                st.markdown("---")
+                
+                # Show the count of selected symptoms
+                st.info(f"📊 Analysis based on {len(all_selected)} selected symptoms")
+                
+                # Probability chart
                 st.markdown("### 📈 Probability Distribution")
                 
                 top10_idx = np.argsort(result['all_probabilities'])[-10:][::-1]
@@ -714,7 +748,7 @@ def display_predictor(df):
                 
                 ax.barh(range(len(top10_diseases)), top10_probs, color=colors[:len(top10_diseases)])
                 ax.set_yticks(range(len(top10_diseases)))
-                ax.set_yticklabels([d[:30] for d in top10_diseases])
+                ax.set_yticklabels([d[:35] for d in top10_diseases])
                 ax.set_xlabel('Probability')
                 ax.set_xlim(0, 1)
                 
@@ -725,8 +759,7 @@ def display_predictor(df):
                 st.pyplot(fig)
                 plt.close()
                 
-                st.caption("⚠️ **Medical Disclaimer:** For educational purposes only.")
-
+                st.caption("⚠️ **Medical Disclaimer:** For educational purposes only. Always consult a healthcare professional.")
 # ============================================
 # ABOUT PAGE
 # ============================================
