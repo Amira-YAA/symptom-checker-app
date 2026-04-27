@@ -6,7 +6,7 @@ An AI-powered medical diagnosis assistant that predicts diseases based on patien
 
 - 🔮 Real-time symptom-based disease prediction
 - 📊 Interactive data visualization dashboard
-- 🤖 Random Forest model with 82.5% accuracy (on full scale sample of 96,088 pateints)
+- 🤖 Random Forest model with overall 82.5+% accuracy on full sample of 96,088 pateints
 - 🎯 Top 3 predictions with confidence scores
 - 📚 Comprehensive symptom database (230 symptoms)
 - 🏥 100 different diseases supported
