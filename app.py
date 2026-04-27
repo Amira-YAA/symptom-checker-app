@@ -493,7 +493,7 @@ def symptom_pattern_analyzer(df, symptom_cols):
 # ============================================
 
 def display_predictor(df):
-    """Main prediction interface"""
+    """Main prediction interface with full symptom list"""
     
     st.markdown("*Select your symptoms below to get a prediction*")
     st.markdown("---")
@@ -531,6 +531,7 @@ def display_predictor(df):
     reset_key = f"reset_{st.session_state.reset_trigger}"
     selected_symptoms = []
     
+    # Category order
     category_order = [
         "🧠 Mental & Emotional", "❤️ Cardiovascular", "🫁 Respiratory",
         "🍽️ Digestive", "🧠 Neurological", "🚽 Genitourinary",
@@ -554,17 +555,69 @@ def display_predictor(df):
                             if cols[i % 2].checkbox(name, key=key):
                                 selected_symptoms.append(symptom)
     
+    # ============================================
+    # OTHER SYMPTOMS - FIXED TO SHOW ALL 110+
+    # ============================================
+    
     other = [s for s in available_symptoms if s != 'diseases' and s not in all_categorized_symptoms]
+    
     if other:
-        with st.expander(f"📌 Other Symptoms ({len(other)})", expanded=False):
-            search = st.text_input("🔍 Search", key=f"search_{reset_key}")
-            filtered = [s for s in other if search.lower() in s.lower()] if search else other[:50]
+        # Session state for pagination
+        pagination_key = f"other_page_{reset_key}"
+        if pagination_key not in st.session_state:
+            st.session_state[pagination_key] = 0
+        
+        with st.expander(f"📌 Other Symptoms ({len(other)} available)", expanded=False):
+            # Search box
+            search = st.text_input("🔍 Search symptoms:", key=f"search_{reset_key}")
+            
+            # Filter based on search
+            if search:
+                filtered = [s for s in other if search.lower() in s.lower()]
+                st.caption(f"Found {len(filtered)} matching symptoms")
+            else:
+                filtered = other
+            
+            # Pagination settings
+            items_per_page = 30  # Show 30 symptoms per page
+            total_pages = (len(filtered) + items_per_page - 1) // items_per_page
+            
+            # Pagination controls
+            if total_pages > 1:
+                col_prev, col_page_info, col_next = st.columns([1, 2, 1])
+                with col_prev:
+                    if st.button("◀ Previous", key=f"prev_{reset_key}"):
+                        if st.session_state[pagination_key] > 0:
+                            st.session_state[pagination_key] -= 1
+                            st.rerun()
+                with col_page_info:
+                    st.markdown(f"<div style='text-align: center;'>Page {st.session_state[pagination_key] + 1} of {total_pages}</div>", unsafe_allow_html=True)
+                with col_next:
+                    if st.button("Next ▶", key=f"next_{reset_key}"):
+                        if st.session_state[pagination_key] < total_pages - 1:
+                            st.session_state[pagination_key] += 1
+                            st.rerun()
+                st.markdown("---")
+            
+            # Get current page items
+            start_idx = st.session_state[pagination_key] * items_per_page
+            end_idx = min(start_idx + items_per_page, len(filtered))
+            current_page_items = filtered[start_idx:end_idx]
+            
+            # Display symptoms in 3 columns
             cols = st.columns(3)
-            for i, symptom in enumerate(filtered):
+            for i, symptom in enumerate(current_page_items):
                 name = symptom.replace('_', ' ').title()
-                key = f"other_{symptom}_{reset_key}"
+                key = f"other_{symptom}_{reset_key}_{i}"
                 if cols[i % 3].checkbox(name, key=key):
                     selected_symptoms.append(symptom)
+            
+            # Show progress
+            st.caption(f"Showing {start_idx + 1} - {end_idx} of {len(filtered)} symptoms")
+            
+            # Reset page when search changes
+            if search:
+                st.session_state[pagination_key] = 0
     
     st.session_state.selected_symptoms = selected_symptoms
     
@@ -644,8 +697,10 @@ def display_predictor(df):
                     
                     for cat, syms in by_cat.items():
                         with st.expander(f"{cat} ({len(syms)})"):
-                            for s in syms[:15]:
+                            for s in syms[:20]:
                                 st.markdown(f"- {s.replace('_', ' ').title()}")
+                            if len(syms) > 20:
+                                st.markdown(f"... and {len(syms)-20} more")
                 
                 st.markdown("### 📈 Probability Distribution")
                 
