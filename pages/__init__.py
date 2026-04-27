@@ -1,1 +1,1 @@
-
+"""Pages module"""
