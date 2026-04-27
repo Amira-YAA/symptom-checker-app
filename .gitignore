@@ -7,12 +7,23 @@ __pycache__/
 env/
 venv/
 ENV/
-.venv
+.venv/
 
 # Streamlit
-.streamlit/
+.streamlit/secrets.toml
+.streamlit/config.toml.local
+
+# Kaggle
+kaggle.json
+.kaggle/
+
+# Data files
+*.csv
 *.pkl
-!models/*.pkl
+*.joblib
+*.h5
+data/
+dataset/
 
 # IDE
 .vscode/
@@ -24,10 +35,18 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Environment
-.env
-*.local
-
 # Logs
 *.log
 logs/
+
+# Models
+models/*.pkl
+models/*.joblib
+!models/.gitkeep
+
+# Environment
+.env
+.env.local
+
+# Cache
+.cache/
