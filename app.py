@@ -96,7 +96,7 @@ def get_symptom_category(symptom):
 
 # Page config
 st.set_page_config(
-    page_title="AI Disease Prediction System",
+    page_title="Disease Prediction App",
     page_icon="🏥",
     layout="wide"
 )
@@ -320,23 +320,37 @@ def predict_disease(selected_symptoms, model, features, encoder):
 # ============================================
 
 def symptom_pattern_analyzer(df, symptom_cols):
-    """Compare two diseases"""
+    """Interactive symptom pattern analyzer for disease comparison"""
     
     st.markdown("## 🔬 Symptom Pattern Analyzer")
-    st.markdown("Compare symptom patterns between two diseases")
+    st.markdown("Compare symptom patterns between two diseases to identify distinguishing features")
     st.markdown("---")
     
     disease_options = sorted(df['diseases'].unique().tolist())
     
     col1, col2 = st.columns(2)
-    with col1:
-        disease1 = st.selectbox("**Disease A**", disease_options, index=0, key="disease_a")
-    with col2:
-        disease2 = st.selectbox("**Disease B**", disease_options, index=min(1, len(disease_options)-1), key="disease_b")
     
-    if st.button("🔍 COMPARE SYMPTOMS", type="primary", use_container_width=True):
+    with col1:
+        disease1 = st.selectbox(
+            "**Disease A**",
+            options=disease_options,
+            index=0,
+            key="disease_a"
+        )
+    
+    with col2:
+        disease2 = st.selectbox(
+            "**Disease B**",
+            options=disease_options,
+            index=min(1, len(disease_options)-1),
+            key="disease_b"
+        )
+    
+    compare_clicked = st.button("🔍 COMPARE SYMPTOMS", type="primary", use_container_width=True)
+    
+    if compare_clicked:
         if disease1 == disease2:
-            st.warning("Select two different diseases")
+            st.warning("⚠️ Please select two different diseases for comparison")
             return
         
         with st.spinner("Analyzing symptom patterns..."):
@@ -357,73 +371,122 @@ def symptom_pattern_analyzer(df, symptom_cols):
             st.markdown(f"""
             <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
                         padding: 20px; border-radius: 10px; color: white; text-align: center; margin-bottom: 20px;">
+                <h2>📊 Comparison Results</h2>
                 <h3>{disease1.upper()} vs {disease2.upper()}</h3>
             </div>
             """, unsafe_allow_html=True)
             
             st.markdown("### 🔍 Top 20 Distinguishing Symptoms")
-            display_df = diff_df.head(20).copy()
+            
+            top_distinguishing = diff_df.head(20)
+            display_df = top_distinguishing.copy()
             display_df['disease1_freq'] = display_df['disease1_freq'].apply(lambda x: f"{x:.1%}")
             display_df['disease2_freq'] = display_df['disease2_freq'].apply(lambda x: f"{x:.1%}")
             display_df['difference'] = display_df['difference'].apply(lambda x: f"{x:+.1%}")
             display_df = display_df[['symptom', 'disease1_freq', 'disease2_freq', 'difference']]
-            display_df.columns = ['Symptom', disease1[:25], disease2[:25], 'Difference']
+            display_df.columns = ['Symptom', disease1[:30], disease2[:30], 'Difference']
+            
             st.dataframe(display_df, use_container_width=True)
             
             col1, col2 = st.columns(2)
             
             with col1:
-                st.markdown(f"### 📈 Top Symptoms in {disease1[:20]}")
-                top1 = diff_df.nlargest(10, 'disease1_freq')
-                fig, ax = plt.subplots(figsize=(8, 6))
-                ax.barh(range(len(top1)), top1['disease1_freq'].values, color='#2ecc71')
-                ax.set_yticks(range(len(top1)))
-                ax.set_yticklabels([s[:30] for s in top1['symptom'].values])
-                ax.set_xlabel('Prevalence')
-                ax.set_xlim(0, 1)
-                for i, val in enumerate(top1['disease1_freq'].values):
-                    ax.text(val + 0.02, i, f'{val:.1%}', va='center')
+                st.markdown(f"### 📈 Top Symptoms in {disease1}")
+                top1 = diff_df.nlargest(15, 'disease1_freq')
+                fig1, ax1 = plt.subplots(figsize=(10, 8))
+                colors1 = plt.cm.RdYlGn(np.linspace(0.3, 0.7, len(top1)))
+                bars1 = ax1.barh(range(len(top1)), top1['disease1_freq'].values, color=colors1)
+                ax1.set_yticks(range(len(top1)))
+                ax1.set_yticklabels([s[:35] for s in top1['symptom'].values])
+                ax1.set_xlabel('Prevalence')
+                ax1.set_title(f'Most Common Symptoms in {disease1[:30]}')
+                ax1.set_xlim(0, 1)
+                
+                for i, (bar, val) in enumerate(zip(bars1, top1['disease1_freq'].values)):
+                    ax1.text(val + 0.02, bar.get_y() + bar.get_height()/2, 
+                            f'{val:.1%}', va='center', fontweight='bold')
+                
                 plt.tight_layout()
-                st.pyplot(fig)
+                st.pyplot(fig1)
                 plt.close()
             
             with col2:
-                st.markdown(f"### 📉 Top Symptoms in {disease2[:20]}")
-                top2 = diff_df.nlargest(10, 'disease2_freq')
-                fig, ax = plt.subplots(figsize=(8, 6))
-                ax.barh(range(len(top2)), top2['disease2_freq'].values, color='#e74c3c')
-                ax.set_yticks(range(len(top2)))
-                ax.set_yticklabels([s[:30] for s in top2['symptom'].values])
-                ax.set_xlabel('Prevalence')
-                ax.set_xlim(0, 1)
-                for i, val in enumerate(top2['disease2_freq'].values):
-                    ax.text(val + 0.02, i, f'{val:.1%}', va='center')
+                st.markdown(f"### 📉 Top Symptoms in {disease2}")
+                top2 = diff_df.nlargest(15, 'disease2_freq')
+                fig2, ax2 = plt.subplots(figsize=(10, 8))
+                colors2 = plt.cm.RdYlGn_r(np.linspace(0.3, 0.7, len(top2)))
+                bars2 = ax2.barh(range(len(top2)), top2['disease2_freq'].values, color=colors2)
+                ax2.set_yticks(range(len(top2)))
+                ax2.set_yticklabels([s[:35] for s in top2['symptom'].values])
+                ax2.set_xlabel('Prevalence')
+                ax2.set_title(f'Most Common Symptoms in {disease2[:30]}')
+                ax2.set_xlim(0, 1)
+                
+                for i, (bar, val) in enumerate(zip(bars2, top2['disease2_freq'].values)):
+                    ax2.text(val + 0.02, bar.get_y() + bar.get_height()/2, 
+                            f'{val:.1%}', va='center', fontweight='bold')
+                
                 plt.tight_layout()
-                st.pyplot(fig)
+                st.pyplot(fig2)
                 plt.close()
             
-            st.markdown("### 🗺️ Symptom Comparison Heatmap")
-            heatmap_data = diff_df.head(15).set_index('symptom')[['disease1_freq', 'disease2_freq']]
-            fig = go.Figure(data=go.Heatmap(
+            st.markdown("### 🗺️ Symptom Prevalence Comparison Heatmap")
+            
+            heatmap_data = diff_df.head(20).set_index('symptom')[['disease1_freq', 'disease2_freq']]
+            
+            fig3 = go.Figure(data=go.Heatmap(
                 z=heatmap_data.values.T,
                 x=heatmap_data.index,
-                y=[disease1[:20], disease2[:20]],
+                y=[disease1[:30], disease2[:30]],
                 colorscale='RdYlGn',
                 zmid=0,
                 text=np.round(heatmap_data.values.T * 100, 1),
-                texttemplate='%{text}%'
+                texttemplate='%{text}%',
+                textfont={"size": 11}
             ))
-            fig.update_layout(height=400, xaxis_tickangle=-45)
-            st.plotly_chart(fig, use_container_width=True)
+            
+            fig3.update_layout(
+                title=f"Symptom Pattern Comparison",
+                xaxis_title="Symptoms",
+                yaxis_title="Disease",
+                height=500,
+                xaxis_tickangle=-45
+            )
+            
+            st.plotly_chart(fig3, use_container_width=True)
             
             col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Total Symptoms", len(symptom_cols))
-            col2.metric(f"{disease1[:10]} Patients", len(data1))
-            col3.metric(f"{disease2[:10]} Patients", len(data2))
-            col4.metric("Avg Difference", f"{diff_df['abs_diff'].mean():.1%}")
             
-            st.download_button("📥 Download CSV", diff_df.to_csv(index=False), 
-                              f"comparison_{disease1}_{disease2}.csv", "text/csv")
+            with col1:
+                st.metric("Unique Symptoms", len(symptom_cols))
+            with col2:
+                st.metric(f"{disease1[:15]} Patients", len(data1))
+            with col3:
+                st.metric(f"{disease2[:15]} Patients", len(data2))
+            with col4:
+                avg_diff = diff_df['abs_diff'].mean()
+                st.metric("Avg Symptom Difference", f"{avg_diff:.1%}")
+            
+            most_distinctive = diff_df.iloc[0]
+            if most_distinctive['difference'] > 0:
+                distinctive_for = disease1
+            else:
+                distinctive_for = disease2
+            
+            st.info(f"""
+            **💡 Key Insight:** Most distinguishing symptom is **'{most_distinctive['symptom']}'**  
+            - Present in {max(most_distinctive['disease1_freq'], most_distinctive['disease2_freq']):.1%} of {distinctive_for} patients
+            - Present in only {min(most_distinctive['disease1_freq'], most_distinctive['disease2_freq']):.1%} of the other disease
+            - Difference: {abs(most_distinctive['difference']):.1%}
+            """)
+            
+            csv = diff_df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download Comparison Results (CSV)",
+                data=csv,
+                file_name=f"symptom_comparison_{disease1}_{disease2}.csv",
+                mime="text/csv"
+            )
 
 # ============================================
 # DISEASE PREDICTOR PAGE
@@ -614,42 +677,52 @@ def display_predictor(df):
 # ============================================
 
 def display_about():
+    st.markdown("### ℹ️ About This Project")
+    
     st.markdown("""
-    ## ℹ️ About This System
+    **🤖 Disease Prediction App**
     
-    **🤖 AI-Powered Disease Prediction System**
+    This project uses machine learning to predict diseases based on patient symptoms, organized into medical categories.
     
-    This system uses machine learning to predict diseases based on patient symptoms.
+    **✨ Features:**
+    - 🎯 Real-time disease prediction with Top 7 possibilities
+    - 🔬 Symptom Pattern Analyzer to compare diseases
+    - 🩺 12 symptom categories with expandable sections
+    - 📊 Interactive visualizations
+    - 🤖 ML model performance (82.2% accuracy on test data)
     
-    ### 📊 Model Performance
-    - **Accuracy:** 82.2% on test data
-    - **Training Data:** 96,088 patient records
-    - **Symptoms:** 230 features
-    - **Diseases:** 100 conditions
+    **🩺 Symptom Categories:**
+    - 🧠 Mental & Emotional (13 symptoms)
+    - ❤️ Cardiovascular (8 symptoms)
+    - 🫁 Respiratory (11 symptoms)
+    - 🍽️ Digestive (13 symptoms)
+    - 🧠 Neurological (8 symptoms)
+    - 🚽 Genitourinary (12 symptoms)
+    - 🦴 Musculoskeletal (13 symptoms)
+    - 🩻 Skin & Appearance (9 symptoms)
+    - 👁️ Eye & Vision (8 symptoms)
+    - 🦻 Ear, Nose & Throat (8 symptoms)
+    - 🩸 Systemic & General (10 symptoms)
+    - 👶 Pregnancy & Reproductive (10 symptoms)
     
-    ### 🩺 Symptom Categories (12 categories)
-    - 🧠 Mental & Emotional (13)
-    - ❤️ Cardiovascular (8)
-    - 🫁 Respiratory (11)
-    - 🍽️ Digestive (13)
-    - 🧠 Neurological (8)
-    - 🚽 Genitourinary (12)
-    - 🦴 Musculoskeletal (13)
-    - 🩻 Skin & Appearance (9)
-    - 👁️ Eye & Vision (8)
-    - 🦻 Ear, Nose & Throat (8)
-    - 🩸 Systemic & General (10)
-    - 👶 Pregnancy & Reproductive (10)
+    **🛠️ Technology Stack:**
+    - **Frontend:** Streamlit
+    - **ML Framework:** Scikit-learn (Random Forest)
+    - **Visualization:** Plotly, Matplotlib
+    - **Data Source:** Kaggle API 
     
-    ⚠️ **Disclaimer:** For educational purposes only.
+    **⚠️ Important Note:**
+    This tool is for **educational and demonstration purposes only**. 
+    It should not be used as a substitute for professional medical advice.
     """)
+
 
 # ============================================
 # MAIN APP
 # ============================================
 
 def main():
-    st.title("🏥 AI Disease Prediction System")
+    st.title("🏥 Disease Prediction App")
     st.markdown("*Powered by Machine Learning | 96,088 Patient Records*")
     
     # Load data
