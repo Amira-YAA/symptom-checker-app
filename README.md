@@ -22,17 +22,22 @@ cd symptom-checker-app
 
 symptom-checker-app/
 ├── .streamlit/
-│   └── config.toml
+│   └── secrets.toml
+├── src/
+│   ├── __init__.py
+│   ├── symptom_categories.py
+│   ├── data_loader.py
+│   ├── model_trainer.py
+│   └── utils.py
+├── pages/
+│   ├── __init__.py
+│   ├── disease_predictor.py
+│   ├── symptom_analyzer.py
+│   └── about.py
+├── models/
+│   └── .gitkeep
 ├── .env
 ├── .gitignore
 ├── requirements.txt
-├── setup.py
-├── src/
-│   ├── __init__.py
-│   ├── data_loader.py
-│   ├── model_trainer.py
-│   ├── symptom_categories.py
-│   └── utils.py
 ├── app.py
-├── train_model.py
 └── README.md
