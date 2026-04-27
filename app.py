@@ -148,7 +148,7 @@ def load_data():
                 if csv_file:
                     df = pd.read_csv(csv_file)
                     if len(df) > 20000:
-                        df = df.sample(n=20000, random_state=42)
+                        df = df.sample(n=50000, random_state=42)
                     return df
                 else:
                     raise FileNotFoundError("No CSV file found")
