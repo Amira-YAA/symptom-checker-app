@@ -488,7 +488,7 @@ def display_predictor(df):
         """, unsafe_allow_html=True)
     
     with col_clear:
-        if st.button("📋 Clear All", type="secondary", use_container_width=True):
+        if st.button("Clear All", type="secondary", use_container_width=True):
             st.session_state.reset_trigger += 1
             st.rerun()
     
@@ -619,7 +619,7 @@ def display_predictor(df):
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    st.markdown("### 📊 Top 7 Possible Diseases")
+                    st.markdown("### Top 7 Possible Diseases")
                     
                     for i, (disease, prob) in enumerate(result['top_7'], 1):
                         if i == 1:
@@ -653,7 +653,7 @@ def display_predictor(df):
                         st.rerun()
                 
                 with col2:
-                    st.markdown("### ✅ Selected Symptoms")
+                    st.markdown("### Selected Symptoms")
                     st.markdown(f"**{len(selected_symptoms)} symptoms selected:**")
                     
                     symptoms_by_category = {}
@@ -697,26 +697,26 @@ def display_predictor(df):
                 plt.close()
                 
                 st.markdown("---")
-                st.caption("⚠️ **Medical Disclaimer:** This is an AI prediction tool for educational purposes only.")
+                st.caption("⚠️ **Medical Disclaimer:** This is an ML prediction tool for educational purposes only.")
 
 # ============================================
 # ABOUT PAGE
 # ============================================
 
 def display_about():
-    st.markdown("### ℹ️ About This System")
+    st.markdown("### ℹ️ About This Project")
     
     st.markdown("""
-    **🤖 AI-Powered Disease Prediction System**
+    **🤖 Disease Prediction System**
     
-    This system uses machine learning to predict diseases based on patient symptoms, organized into medical categories.
+    This project uses machine learning to predict diseases based on patient symptoms, organized into medical categories.
     
     **✨ Features:**
     - 🎯 Real-time disease prediction with Top 7 possibilities
     - 🔬 Symptom Pattern Analyzer to compare diseases
     - 🩺 12 symptom categories with expandable sections
     - 📊 Interactive visualizations
-    - 🤖 Random Forest ML model (80%+ accuracy)
+    - 🤖 Random Forest ML model (70-80% average accuracy)
     
     **🩺 Symptom Categories:**
     - 🧠 Mental & Emotional (13 symptoms)
@@ -736,7 +736,7 @@ def display_about():
     - **Frontend:** Streamlit
     - **ML Framework:** Scikit-learn (Random Forest)
     - **Visualization:** Plotly, Matplotlib
-    - **Data Source:** Kaggle API / Sample Data
+    - **Data Source:** Kaggle API / Sample Data of 96,088 Pateints and 231 Symptoms
     
     **⚠️ Important Note:**
     This tool is for **educational and demonstration purposes only**. 
@@ -748,7 +748,7 @@ def display_about():
 # ============================================
 
 def main():
-    st.title("🏥 AI Disease Prediction System")
+    st.title("🏥 Disease Prediction System")
     st.markdown("*AI-Powered Medical Diagnosis Assistant*")
     
     if st.session_state.df is None:
@@ -758,7 +758,7 @@ def main():
     
     with st.sidebar:
         st.image("https://cdn-icons-png.flaticon.com/512/2968/2968621.png", width=80)
-        st.markdown("# 🎯 Navigation")
+        st.markdown("#  Navigation")
         
         page = st.radio(
             "Select Page",
