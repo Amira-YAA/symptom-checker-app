@@ -2,18 +2,17 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 import os
+import joblib
 import warnings
 warnings.filterwarnings('ignore')
 
 # ============================================
-# SYMPTOM CATEGORIES (Complete)
+# SYMPTOM CATEGORIES
 # ============================================
 
 symptom_categories = {
@@ -99,11 +98,12 @@ def get_symptom_category(symptom):
 st.set_page_config(
     page_title="AI Disease Prediction System",
     page_icon="🏥",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-# Initialize session state
+# Initialize session state with persistence flags
+if 'model_loaded' not in st.session_state:
+    st.session_state.model_loaded = False
 if 'model' not in st.session_state:
     st.session_state.model = None
 if 'features' not in st.session_state:
@@ -118,163 +118,158 @@ if 'reset_trigger' not in st.session_state:
     st.session_state.reset_trigger = 0
 if 'selected_symptoms' not in st.session_state:
     st.session_state.selected_symptoms = []
+if 'model_accuracy' not in st.session_state:
+    st.session_state.model_accuracy = 0
 
 # ============================================
-# DATA LOADING
+# DATA LOADING - FULL DATASET
 # ============================================
 
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=86400)
 def load_data():
+    """Load FULL dataset from Kaggle (no sampling)"""
+    
+    api_token = None
     try:
         api_token = st.secrets.get("KAGGLE_API_TOKEN")
-        dataset_path = st.secrets.get("KAGGLE_DATASET", "rajawatprateek/symptomchecker-multi-disease-diagnostic-data")
+    except:
+        pass
+    
+    if not api_token:
+        api_token = os.environ.get("KAGGLE_API_TOKEN")
+    
+    if not api_token:
+        st.error("❌ Kaggle API token not found!")
+        st.markdown("""
+        ### Please add your Kaggle API token:
         
-        if api_token:
-            os.environ['KAGGLE_API_TOKEN'] = api_token
-        
-        try:
-            import kagglehub
-            
-            with st.spinner('📥 Loading dataset from Kaggle...'):
-                path = kagglehub.dataset_download(dataset_path)
-                
-                import os
-                csv_file = None
-                for file in os.listdir(path):
-                    if file.endswith('.csv'):
-                        csv_file = os.path.join(path, file)
-                        break
-                
-                if csv_file:
-                    df = pd.read_csv(csv_file)
-                    if len(df) > 20000:
-                        df = df.sample(n=20000, random_state=42)
-                    return df
-                else:
-                    raise FileNotFoundError("No CSV file found")
-                    
-        except ImportError:
-            return create_sample_data()
-        except Exception as e:
-            return create_sample_data()
-            
-    except Exception as e:
-        return create_sample_data()
-
-def create_sample_data():
-    np.random.seed(42)
-    n_samples = 3000
+        **For Streamlit Cloud:**
+        1. Go to Settings → Secrets
+        2. Add: `KAGGLE_API_TOKEN = "your_token_here"`
+        """)
+        st.stop()
     
-    diseases = [
-        'Common Cold', 'Influenza', 'Allergic Rhinitis', 'Asthma', 
-        'Migraine', 'Gastroenteritis', 'Sinusitis', 'Bronchitis',
-        'UTI', 'Tonsillitis', 'Anxiety Disorder', 'Major Depression', 
-        'GERD', 'Hypertension', 'Osteoarthritis', 'Panic Disorder'
-    ]
+    os.environ['KAGGLE_API_TOKEN'] = api_token
     
-    all_symptoms = []
-    for symptoms in symptom_categories.values():
-        all_symptoms.extend(symptoms)
-    all_symptoms = list(set(all_symptoms))
-    
-    data = []
-    
-    for disease in diseases:
-        samples_per_disease = n_samples // len(diseases)
-        
-        for _ in range(samples_per_disease):
-            row = {'diseases': disease}
-            for symptom in all_symptoms:
-                if disease in ['Anxiety Disorder', 'Panic Disorder']:
-                    prob = 0.7 if symptom in ['anxiety and nervousness', 'palpitations', 'insomnia', 'restlessness'] else 0.05
-                elif disease in ['Major Depression']:
-                    prob = 0.7 if symptom in ['depression', 'insomnia', 'fatigue', 'loss of appetite'] else 0.05
-                elif disease == 'Common Cold':
-                    prob = 0.7 if symptom in ['cough', 'nasal congestion', 'sore throat', 'sneezing'] else 0.05
-                elif disease == 'Influenza':
-                    prob = 0.7 if symptom in ['fever', 'fatigue', 'muscle weakness', 'cough'] else 0.05
-                elif disease == 'Migraine':
-                    prob = 0.7 if symptom in ['headache', 'dizziness', 'nausea', 'diminished vision'] else 0.05
-                elif disease == 'Gastroenteritis':
-                    prob = 0.7 if symptom in ['nausea', 'vomiting', 'diarrhea', 'abdominal pain'] else 0.05
-                elif disease == 'GERD':
-                    prob = 0.7 if symptom in ['heartburn', 'chest tightness', 'regurgitation'] else 0.05
-                else:
-                    prob = 0.05
-                
-                row[symptom] = np.random.choice([0, 1], p=[1-prob, prob])
-            data.append(row)
-    
-    return pd.DataFrame(data)
-
-# ============================================
-# MODEL TRAINING
-# ============================================
-
-@st.cache_resource
-def train_model_safe(df):
     try:
-        with st.spinner('🔄 Training AI model on symptom patterns...'):
-            X = df.drop('diseases', axis=1)
-            y = df['diseases']
+        import kagglehub
+        
+        with st.spinner('📥 Loading FULL dataset (96,088 records) from Kaggle...'):
+            path = kagglehub.dataset_download("rajawatprateek/symptomchecker-multi-disease-diagnostic-data")
             
-            encoder = LabelEncoder()
-            y_encoded = encoder.fit_transform(y)
+            csv_file = None
+            for file in os.listdir(path):
+                if file.endswith('.csv'):
+                    csv_file = os.path.join(path, file)
+                    break
             
-            max_samples = 5000
-            if len(X) > max_samples:
-                indices = np.random.choice(len(X), max_samples, replace=False)
-                X = X.iloc[indices]
-                y_encoded = y_encoded[indices]
-            
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded
-            )
-            
-            model = RandomForestClassifier(
-                n_estimators=50,
-                max_depth=15,
-                min_samples_split=5,
-                min_samples_leaf=2,
-                random_state=42,
-                n_jobs=-1
-            )
-            
-            model.fit(X_train, y_train)
-            accuracy = model.score(X_test, y_test)
-            
-            st.session_state.model = model
-            st.session_state.features = X.columns.tolist()
-            st.session_state.disease_encoder = encoder
-            st.session_state.model_trained = True
-            st.session_state.model_accuracy = accuracy
-            
-            return True, accuracy
+            if csv_file:
+                df = pd.read_csv(csv_file)
+                # NO SAMPLING - use full dataset
+                st.success(f"✅ Loaded {len(df):,} records with {len(df.columns)-1} symptoms")
+                return df
+            else:
+                st.error("CSV file not found")
+                st.stop()
+                
     except Exception as e:
-        st.error(f"❌ Model training failed: {str(e)}")
-        return False, 0
+        st.error(f"Failed to load data: {str(e)}")
+        st.stop()
+
+# ============================================
+# MODEL TRAINING - PERSISTENT
+# ============================================
+
+def train_and_save_model(df):
+    """Train model once and save to disk"""
+    
+    with st.spinner('🔄 Training AI model on 96,088 records (this will take 3-5 minutes)...'):
+        X = df.drop('diseases', axis=1)
+        y = df['diseases']
+        
+        encoder = LabelEncoder()
+        y_encoded = encoder.fit_transform(y)
+        
+        # Use ALL data for training
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y_encoded, test_size=0.2, random_state=42, stratify=y_encoded
+        )
+        
+        model = RandomForestClassifier(
+            n_estimators=150,
+            max_depth=25,
+            random_state=42,
+            n_jobs=-1,
+            class_weight='balanced'
+        )
+        
+        model.fit(X_train, y_train)
+        accuracy = model.score(X_test, y_test)
+        
+        # Save to disk
+        os.makedirs("models", exist_ok=True)
+        joblib.dump({
+            'model': model,
+            'features': X.columns.tolist(),
+            'encoder': encoder,
+            'accuracy': accuracy
+        }, "models/disease_model.pkl")
+        
+        return model, X.columns.tolist(), encoder, accuracy
+
+def load_or_train_model(df):
+    """Load saved model or train new one"""
+    
+    model_path = "models/disease_model.pkl"
+    
+    # Try to load existing model
+    if os.path.exists(model_path):
+        try:
+            data = joblib.load(model_path)
+            st.session_state.model = data['model']
+            st.session_state.features = data['features']
+            st.session_state.disease_encoder = data['encoder']
+            st.session_state.model_accuracy = data['accuracy']
+            st.session_state.model_trained = True
+            st.session_state.model_loaded = True
+            return True, data['accuracy']
+        except:
+            pass
+    
+    # Train new model if not exists or corrupt
+    model, features, encoder, accuracy = train_and_save_model(df)
+    st.session_state.model = model
+    st.session_state.features = features
+    st.session_state.disease_encoder = encoder
+    st.session_state.model_accuracy = accuracy
+    st.session_state.model_trained = True
+    st.session_state.model_loaded = True
+    return True, accuracy
 
 def predict_disease(selected_symptoms, model, features, encoder):
+    """Make prediction"""
     input_vector = np.zeros(len(features))
     for symptom in selected_symptoms:
         if symptom in features:
             input_vector[features.index(symptom)] = 1
     
-    all_probabilities = model.predict_proba([input_vector])[0]
+    probabilities = model.predict_proba([input_vector])[0]
     
-    top_7_idx = np.argsort(all_probabilities)[-7:][::-1]
+    # Top 7
+    top_7_idx = np.argsort(probabilities)[-7:][::-1]
     top_7_diseases = encoder.inverse_transform(top_7_idx)
-    top_7_probs = all_probabilities[top_7_idx]
+    top_7_probs = probabilities[top_7_idx]
     
-    primary_idx = np.argmax(all_probabilities)
+    # Primary
+    primary_idx = np.argmax(probabilities)
     primary_disease = encoder.inverse_transform([primary_idx])[0]
-    primary_confidence = all_probabilities[primary_idx]
+    primary_confidence = probabilities[primary_idx]
     
     return {
         'primary': primary_disease,
         'primary_confidence': primary_confidence,
         'top_7': list(zip(top_7_diseases, top_7_probs)),
-        'all_probabilities': all_probabilities,
+        'all_probabilities': probabilities,
         'all_diseases': encoder.classes_
     }
 
@@ -283,37 +278,23 @@ def predict_disease(selected_symptoms, model, features, encoder):
 # ============================================
 
 def symptom_pattern_analyzer(df, symptom_cols):
-    """Interactive symptom pattern analyzer for disease comparison"""
+    """Compare two diseases"""
     
     st.markdown("## 🔬 Symptom Pattern Analyzer")
-    st.markdown("Compare symptom patterns between two diseases to identify distinguishing features")
+    st.markdown("Compare symptom patterns between two diseases")
     st.markdown("---")
     
     disease_options = sorted(df['diseases'].unique().tolist())
     
     col1, col2 = st.columns(2)
-    
     with col1:
-        disease1 = st.selectbox(
-            "**Disease A**",
-            options=disease_options,
-            index=0,
-            key="disease_a"
-        )
-    
+        disease1 = st.selectbox("**Disease A**", disease_options, index=0, key="disease_a")
     with col2:
-        disease2 = st.selectbox(
-            "**Disease B**",
-            options=disease_options,
-            index=min(1, len(disease_options)-1),
-            key="disease_b"
-        )
+        disease2 = st.selectbox("**Disease B**", disease_options, index=min(1, len(disease_options)-1), key="disease_b")
     
-    compare_clicked = st.button("🔍 COMPARE SYMPTOMS", type="primary", use_container_width=True)
-    
-    if compare_clicked:
+    if st.button("🔍 COMPARE SYMPTOMS", type="primary", use_container_width=True):
         if disease1 == disease2:
-            st.warning("⚠️ Please select two different diseases for comparison")
+            st.warning("Select two different diseases")
             return
         
         with st.spinner("Analyzing symptom patterns..."):
@@ -334,161 +315,107 @@ def symptom_pattern_analyzer(df, symptom_cols):
             st.markdown(f"""
             <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
                         padding: 20px; border-radius: 10px; color: white; text-align: center; margin-bottom: 20px;">
-                <h2>📊 Comparison Results</h2>
                 <h3>{disease1.upper()} vs {disease2.upper()}</h3>
             </div>
             """, unsafe_allow_html=True)
             
             st.markdown("### 🔍 Top 20 Distinguishing Symptoms")
-            
-            top_distinguishing = diff_df.head(20)
-            display_df = top_distinguishing.copy()
+            display_df = diff_df.head(20).copy()
             display_df['disease1_freq'] = display_df['disease1_freq'].apply(lambda x: f"{x:.1%}")
             display_df['disease2_freq'] = display_df['disease2_freq'].apply(lambda x: f"{x:.1%}")
             display_df['difference'] = display_df['difference'].apply(lambda x: f"{x:+.1%}")
             display_df = display_df[['symptom', 'disease1_freq', 'disease2_freq', 'difference']]
-            display_df.columns = ['Symptom', disease1[:30], disease2[:30], 'Difference']
-            
+            display_df.columns = ['Symptom', disease1[:25], disease2[:25], 'Difference']
             st.dataframe(display_df, use_container_width=True)
             
             col1, col2 = st.columns(2)
             
             with col1:
-                st.markdown(f"### 📈 Top Symptoms in {disease1}")
-                top1 = diff_df.nlargest(15, 'disease1_freq')
-                fig1, ax1 = plt.subplots(figsize=(10, 8))
-                colors1 = plt.cm.RdYlGn(np.linspace(0.3, 0.7, len(top1)))
-                bars1 = ax1.barh(range(len(top1)), top1['disease1_freq'].values, color=colors1)
-                ax1.set_yticks(range(len(top1)))
-                ax1.set_yticklabels([s[:35] for s in top1['symptom'].values])
-                ax1.set_xlabel('Prevalence')
-                ax1.set_title(f'Most Common Symptoms in {disease1[:30]}')
-                ax1.set_xlim(0, 1)
-                
-                for i, (bar, val) in enumerate(zip(bars1, top1['disease1_freq'].values)):
-                    ax1.text(val + 0.02, bar.get_y() + bar.get_height()/2, 
-                            f'{val:.1%}', va='center', fontweight='bold')
-                
+                st.markdown(f"### 📈 Top Symptoms in {disease1[:20]}")
+                top1 = diff_df.nlargest(10, 'disease1_freq')
+                fig, ax = plt.subplots(figsize=(8, 6))
+                ax.barh(range(len(top1)), top1['disease1_freq'].values, color='#2ecc71')
+                ax.set_yticks(range(len(top1)))
+                ax.set_yticklabels([s[:30] for s in top1['symptom'].values])
+                ax.set_xlabel('Prevalence')
+                ax.set_xlim(0, 1)
+                for i, val in enumerate(top1['disease1_freq'].values):
+                    ax.text(val + 0.02, i, f'{val:.1%}', va='center')
                 plt.tight_layout()
-                st.pyplot(fig1)
+                st.pyplot(fig)
                 plt.close()
             
             with col2:
-                st.markdown(f"### 📉 Top Symptoms in {disease2}")
-                top2 = diff_df.nlargest(15, 'disease2_freq')
-                fig2, ax2 = plt.subplots(figsize=(10, 8))
-                colors2 = plt.cm.RdYlGn_r(np.linspace(0.3, 0.7, len(top2)))
-                bars2 = ax2.barh(range(len(top2)), top2['disease2_freq'].values, color=colors2)
-                ax2.set_yticks(range(len(top2)))
-                ax2.set_yticklabels([s[:35] for s in top2['symptom'].values])
-                ax2.set_xlabel('Prevalence')
-                ax2.set_title(f'Most Common Symptoms in {disease2[:30]}')
-                ax2.set_xlim(0, 1)
-                
-                for i, (bar, val) in enumerate(zip(bars2, top2['disease2_freq'].values)):
-                    ax2.text(val + 0.02, bar.get_y() + bar.get_height()/2, 
-                            f'{val:.1%}', va='center', fontweight='bold')
-                
+                st.markdown(f"### 📉 Top Symptoms in {disease2[:20]}")
+                top2 = diff_df.nlargest(10, 'disease2_freq')
+                fig, ax = plt.subplots(figsize=(8, 6))
+                ax.barh(range(len(top2)), top2['disease2_freq'].values, color='#e74c3c')
+                ax.set_yticks(range(len(top2)))
+                ax.set_yticklabels([s[:30] for s in top2['symptom'].values])
+                ax.set_xlabel('Prevalence')
+                ax.set_xlim(0, 1)
+                for i, val in enumerate(top2['disease2_freq'].values):
+                    ax.text(val + 0.02, i, f'{val:.1%}', va='center')
                 plt.tight_layout()
-                st.pyplot(fig2)
+                st.pyplot(fig)
                 plt.close()
             
-            st.markdown("### 🗺️ Symptom Prevalence Comparison Heatmap")
-            
-            heatmap_data = diff_df.head(20).set_index('symptom')[['disease1_freq', 'disease2_freq']]
-            
-            fig3 = go.Figure(data=go.Heatmap(
+            st.markdown("### 🗺️ Symptom Comparison Heatmap")
+            heatmap_data = diff_df.head(15).set_index('symptom')[['disease1_freq', 'disease2_freq']]
+            fig = go.Figure(data=go.Heatmap(
                 z=heatmap_data.values.T,
                 x=heatmap_data.index,
-                y=[disease1[:30], disease2[:30]],
+                y=[disease1[:20], disease2[:20]],
                 colorscale='RdYlGn',
                 zmid=0,
                 text=np.round(heatmap_data.values.T * 100, 1),
-                texttemplate='%{text}%',
-                textfont={"size": 11}
+                texttemplate='%{text}%'
             ))
-            
-            fig3.update_layout(
-                title=f"Symptom Pattern Comparison",
-                xaxis_title="Symptoms",
-                yaxis_title="Disease",
-                height=500,
-                xaxis_tickangle=-45
-            )
-            
-            st.plotly_chart(fig3, use_container_width=True)
+            fig.update_layout(height=400, xaxis_tickangle=-45)
+            st.plotly_chart(fig, use_container_width=True)
             
             col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Total Symptoms", len(symptom_cols))
+            col2.metric(f"{disease1[:10]} Patients", len(data1))
+            col3.metric(f"{disease2[:10]} Patients", len(data2))
+            col4.metric("Avg Difference", f"{diff_df['abs_diff'].mean():.1%}")
             
-            with col1:
-                st.metric("Unique Symptoms", len(symptom_cols))
-            with col2:
-                st.metric(f"{disease1[:15]} Patients", len(data1))
-            with col3:
-                st.metric(f"{disease2[:15]} Patients", len(data2))
-            with col4:
-                avg_diff = diff_df['abs_diff'].mean()
-                st.metric("Avg Symptom Difference", f"{avg_diff:.1%}")
-            
-            most_distinctive = diff_df.iloc[0]
-            if most_distinctive['difference'] > 0:
-                distinctive_for = disease1
-            else:
-                distinctive_for = disease2
-            
-            st.info(f"""
-            **💡 Key Insight:** Most distinguishing symptom is **'{most_distinctive['symptom']}'**  
-            - Present in {max(most_distinctive['disease1_freq'], most_distinctive['disease2_freq']):.1%} of {distinctive_for} patients
-            - Present in only {min(most_distinctive['disease1_freq'], most_distinctive['disease2_freq']):.1%} of the other disease
-            - Difference: {abs(most_distinctive['difference']):.1%}
-            """)
-            
-            csv = diff_df.to_csv(index=False)
-            st.download_button(
-                label="📥 Download Comparison Results (CSV)",
-                data=csv,
-                file_name=f"symptom_comparison_{disease1}_{disease2}.csv",
-                mime="text/csv"
-            )
+            st.download_button("📥 Download CSV", diff_df.to_csv(index=False), 
+                              f"comparison_{disease1}_{disease2}.csv", "text/csv")
 
 # ============================================
 # DISEASE PREDICTOR PAGE
 # ============================================
 
 def display_predictor(df):
-    """Display the disease predictor interface with expandable categories"""
+    """Main prediction interface"""
     
-    st.markdown("*Select your symptoms below to get a disease prediction*")
+    st.markdown("*Select your symptoms below to get a prediction*")
     st.markdown("---")
     
-    if not st.session_state.model_trained:
-        st.info("🤖 Preparing AI model for prediction...")
-        success, accuracy = train_model_safe(df)
-        if success:
-            st.success(f"✅ AI Model Ready! (Accuracy: {accuracy*100:.1f}%)")
-            st.rerun()
-        else:
-            st.error("❌ Failed to initialize model. Please refresh.")
+    # Load or train model ONLY ONCE
+    if not st.session_state.model_loaded:
+        success, accuracy = load_or_train_model(df)
+        if not success:
+            st.error("Failed to load/train model")
             return
     
-    col_reset, col_counter, col_clear = st.columns([1, 2, 1])
-    
-    with col_reset:
-        if st.button("🗑️ Reset All Symptoms", type="secondary", use_container_width=True):
+    # Controls
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col1:
+        if st.button("🗑️ Reset All", use_container_width=True):
             st.session_state.reset_trigger += 1
             st.rerun()
-    
-    with col_counter:
+    with col2:
         selected_count = len(st.session_state.get('selected_symptoms', []))
         st.markdown(f"""
-        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+        <div style="background: linear-gradient(135deg, #667eea, #764ba2); 
                     padding: 10px; border-radius: 10px; text-align: center; color: white;">
-            <b>✅ SELECTED:</b> {selected_count} symptoms
+            ✅ SELECTED: {selected_count} symptoms
         </div>
         """, unsafe_allow_html=True)
-    
-    with col_clear:
-        if st.button("Clear All", type="secondary", use_container_width=True):
+    with col3:
+        if st.button("Clear All", use_container_width=True):
             st.session_state.reset_trigger += 1
             st.rerun()
     
@@ -499,123 +426,75 @@ def display_predictor(df):
     selected_symptoms = []
     
     category_order = [
-        "🧠 Mental & Emotional",
-        "❤️ Cardiovascular", 
-        "🫁 Respiratory",
-        "🍽️ Digestive",
-        "🧠 Neurological",
-        "🚽 Genitourinary",
-        "🦴 Musculoskeletal",
-        "🩻 Skin & Appearance",
-        "👁️ Eye & Vision",
-        "🦻 Ear, Nose & Throat",
-        "🩸 Systemic & General",
-        "👶 Pregnancy & Reproductive"
+        "🧠 Mental & Emotional", "❤️ Cardiovascular", "🫁 Respiratory",
+        "🍽️ Digestive", "🧠 Neurological", "🚽 Genitourinary",
+        "🦴 Musculoskeletal", "🩻 Skin & Appearance", "👁️ Eye & Vision",
+        "🦻 Ear, Nose & Throat", "🩸 Systemic & General", "👶 Pregnancy & Reproductive"
     ]
     
     col1, col2 = st.columns(2)
-    mid_point = len(category_order) // 2
-    left_categories = category_order[:mid_point]
-    right_categories = category_order[mid_point:]
+    mid = len(category_order) // 2
     
-    with col1:
-        for category in left_categories:
+    for idx, category in enumerate(category_order):
+        with col1 if idx < mid else col2:
             if category in symptom_categories:
-                category_symptoms = symptom_categories[category]
-                available_in_category = [s for s in category_symptoms if s in available_symptoms]
-                
-                if available_in_category:
-                    with st.expander(f"{category} ({len(available_in_category)} symptoms)", expanded=False):
-                        sym_cols = st.columns(2)
-                        for idx, symptom in enumerate(available_in_category):
-                            display_name = symptom.replace('_', ' ').title()
-                            checkbox_key = f"{category}_{symptom}_{reset_key}"
-                            
-                            if sym_cols[idx % 2].checkbox(display_name, key=checkbox_key):
+                available = [s for s in symptom_categories[category] if s in available_symptoms]
+                if available:
+                    with st.expander(f"{category} ({len(available)})", expanded=False):
+                        cols = st.columns(2)
+                        for i, symptom in enumerate(available):
+                            name = symptom.replace('_', ' ').title()
+                            key = f"{category}_{symptom}_{reset_key}"
+                            if cols[i % 2].checkbox(name, key=key):
                                 selected_symptoms.append(symptom)
     
-    with col2:
-        for category in right_categories:
-            if category in symptom_categories:
-                category_symptoms = symptom_categories[category]
-                available_in_category = [s for s in category_symptoms if s in available_symptoms]
-                
-                if available_in_category:
-                    with st.expander(f"{category} ({len(available_in_category)} symptoms)", expanded=False):
-                        sym_cols = st.columns(2)
-                        for idx, symptom in enumerate(available_in_category):
-                            display_name = symptom.replace('_', ' ').title()
-                            checkbox_key = f"{category}_{symptom}_{reset_key}"
-                            
-                            if sym_cols[idx % 2].checkbox(display_name, key=checkbox_key):
-                                selected_symptoms.append(symptom)
-    
-    other_symptoms = [s for s in available_symptoms if s != 'diseases' and s not in all_categorized_symptoms]
-    
-    if other_symptoms:
-        with st.expander(f"📌 Other Symptoms ({len(other_symptoms)} available)", expanded=False):
-            search = st.text_input("🔍 Search symptoms:", key=f"search_{reset_key}")
-            
-            if search:
-                filtered = [s for s in other_symptoms if search.lower() in s.lower()]
-            else:
-                filtered = other_symptoms[:50]
-            
-            st.caption(f"Showing {len(filtered)} of {len(other_symptoms)} symptoms")
-            
+    other = [s for s in available_symptoms if s != 'diseases' and s not in all_categorized_symptoms]
+    if other:
+        with st.expander(f"📌 Other Symptoms ({len(other)})", expanded=False):
+            search = st.text_input("🔍 Search", key=f"search_{reset_key}")
+            filtered = [s for s in other if search.lower() in s.lower()] if search else other[:50]
             cols = st.columns(3)
-            for idx, symptom in enumerate(filtered):
-                display_name = symptom.replace('_', ' ').title()
-                checkbox_key = f"other_{symptom}_{reset_key}"
-                
-                if cols[idx % 3].checkbox(display_name, key=checkbox_key):
+            for i, symptom in enumerate(filtered):
+                name = symptom.replace('_', ' ').title()
+                key = f"other_{symptom}_{reset_key}"
+                if cols[i % 3].checkbox(name, key=key):
                     selected_symptoms.append(symptom)
     
     st.session_state.selected_symptoms = selected_symptoms
     
     st.markdown("---")
-    col1, col2, col3 = st.columns([1, 2, 1])
-    
-    with col2:
-        predict_btn = st.button("🔮 PREDICT DISEASE", type="primary", use_container_width=True)
-    
-    if predict_btn:
-        if len(selected_symptoms) == 0:
-            st.warning("⚠️ Please select at least one symptom before predicting")
+    if st.button("🔮 PREDICT DISEASE", type="primary", use_container_width=True):
+        if not selected_symptoms:
+            st.warning("⚠️ Please select at least one symptom")
         else:
             with st.spinner("🔄 Analyzing symptoms with AI..."):
-                result = predict_disease(
-                    selected_symptoms,
-                    st.session_state.model,
-                    st.session_state.features,
-                    st.session_state.disease_encoder
-                )
+                result = predict_disease(selected_symptoms, st.session_state.model,
+                                        st.session_state.features, st.session_state.disease_encoder)
                 
-                st.markdown("---")
                 st.markdown("## 🎯 Prediction Results")
                 
                 col1, col2 = st.columns([2, 1])
                 
                 with col1:
-                    confidence = result['primary_confidence']
-                    if confidence > 0.7:
+                    conf = result['primary_confidence']
+                    if conf > 0.7:
                         color = "#27ae60"
-                        confidence_level = "HIGH CONFIDENCE"
+                        level = "HIGH"
                         emoji = "🎯"
-                    elif confidence > 0.4:
+                    elif conf > 0.4:
                         color = "#f39c12"
-                        confidence_level = "MEDIUM CONFIDENCE"
+                        level = "MEDIUM"
                         emoji = "✅"
                     else:
                         color = "#e74c3c"
-                        confidence_level = "LOW CONFIDENCE"
+                        level = "LOW"
                         emoji = "⚠️"
                     
                     st.markdown(f"""
-                    <div style="background-color: {color}; padding: 30px; border-radius: 15px; color: white; text-align: center;">
-                        <h3 style="margin: 0;">{emoji} Most Likely Disease</h3>
-                        <h1 style="margin: 10px 0; font-size: 2em;">{result['primary'].upper()}</h1>
-                        <h2 style="margin: 0;">{confidence_level}: {confidence*100:.1f}%</h2>
+                    <div style="background: {color}; padding: 20px; border-radius: 10px; color: white; text-align: center;">
+                        <h2>{emoji} Most Likely Disease</h2>
+                        <h1>{result['primary'].upper()}</h1>
+                        <h3>{level} CONFIDENCE: {conf*100:.1f}%</h3>
                     </div>
                     """, unsafe_allow_html=True)
                     
@@ -636,111 +515,90 @@ def display_predictor(df):
                             icon = "🔹"
                         
                         st.markdown(f"""
-                        <div style="margin-bottom: 12px;">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                                <span><b>{i}.</b> {icon} <b>{disease}</b></span>
-                                <span style="color: {bar_color}; font-weight: bold;">{prob*100:.1f}%</span>
+                        <div style="margin-bottom: 10px;">
+                            <div style="display: flex; justify-content: space-between;">
+                                <b>{i}. {icon} {disease}</b>
+                                <span style="color: {bar_color};">{prob*100:.1f}%</span>
                             </div>
-                            <div style="background-color: #ecf0f1; border-radius: 10px; overflow: hidden;">
-                                <div style="background-color: {bar_color}; width: {prob*100}%; height: 35px; border-radius: 10px; line-height: 35px; padding-left: 10px; color: white; font-size: 14px;">
-                                    {'★ TOP PREDICTION' if i == 1 else ''}
-                                </div>
+                            <div style="background: #ecf0f1; border-radius: 5px;">
+                                <div style="background: {bar_color}; width: {prob*100}%; height: 25px; border-radius: 5px;"></div>
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
                     
-                    if st.button("🔄 New Prediction", type="secondary"):
+                    if st.button("🔄 New Prediction"):
                         st.rerun()
                 
                 with col2:
-                    st.markdown("### Selected Symptoms")
-                    st.markdown(f"**{len(selected_symptoms)} symptoms selected:**")
+                    st.markdown(f"### Selected Symptoms ({len(selected_symptoms)})")
+                    by_cat = {}
+                    for s in selected_symptoms:
+                        cat = get_symptom_category(s)
+                        by_cat.setdefault(cat, []).append(s)
                     
-                    symptoms_by_category = {}
-                    for symptom in selected_symptoms:
-                        category = get_symptom_category(symptom)
-                        if category not in symptoms_by_category:
-                            symptoms_by_category[category] = []
-                        symptoms_by_category[category].append(symptom)
-                    
-                    for category, symptoms_list in symptoms_by_category.items():
-                        with st.expander(f"{category} ({len(symptoms_list)})"):
-                            display_symptoms = [s.replace('_', ' ').title() for s in symptoms_list]
-                            for s in display_symptoms[:20]:
-                                st.markdown(f"- {s}")
-                            if len(symptoms_list) > 20:
-                                st.markdown(f"... and {len(symptoms_list)-20} more")
+                    for cat, syms in by_cat.items():
+                        with st.expander(f"{cat} ({len(syms)})"):
+                            for s in syms[:15]:
+                                st.markdown(f"- {s.replace('_', ' ').title()}")
                 
                 st.markdown("### 📈 Probability Distribution")
                 
-                top_10_idx = np.argsort(result['all_probabilities'])[-10:][::-1]
-                top_10_diseases = result['all_diseases'][top_10_idx]
-                top_10_probs = result['all_probabilities'][top_10_idx]
+                top10_idx = np.argsort(result['all_probabilities'])[-10:][::-1]
+                top10_diseases = result['all_diseases'][top10_idx]
+                top10_probs = result['all_probabilities'][top10_idx]
                 
                 fig, ax = plt.subplots(figsize=(10, 5))
-                colors = ['#27ae60', '#3498db', '#f39c12', '#e67e22', '#e74c3c', 
+                colors = ['#27ae60', '#3498db', '#f39c12', '#e67e22', '#e74c3c',
                          '#9b59b6', '#1abc9c', '#34495e', '#95a5a6', '#7f8c8d']
                 
-                bars = ax.barh(range(len(top_10_diseases)), top_10_probs, color=colors[:len(top_10_diseases)])
-                ax.set_yticks(range(len(top_10_diseases)))
-                ax.set_yticklabels([d[:30] for d in top_10_diseases])
+                ax.barh(range(len(top10_diseases)), top10_probs, color=colors[:len(top10_diseases)])
+                ax.set_yticks(range(len(top10_diseases)))
+                ax.set_yticklabels([d[:30] for d in top10_diseases])
                 ax.set_xlabel('Probability')
-                ax.set_title('Top 10 Disease Probabilities')
                 ax.set_xlim(0, 1)
                 
-                for i, (bar, prob) in enumerate(zip(bars, top_10_probs)):
-                    ax.text(prob + 0.01, bar.get_y() + bar.get_height()/2, 
-                           f'{prob:.1%}', va='center', fontweight='bold')
+                for i, prob in enumerate(top10_probs):
+                    ax.text(prob + 0.01, i, f'{prob:.1%}', va='center')
                 
                 plt.tight_layout()
                 st.pyplot(fig)
                 plt.close()
                 
-                st.markdown("---")
-                st.caption("⚠️ **Medical Disclaimer:** This is an ML prediction tool for educational purposes only.")
+                st.caption("⚠️ **Medical Disclaimer:** For educational purposes only.")
 
 # ============================================
 # ABOUT PAGE
 # ============================================
 
 def display_about():
-    st.markdown("### ℹ️ About This Project")
-    
     st.markdown("""
-    **🤖 Disease Prediction System**
+    ## ℹ️ About This System
     
-    This project uses machine learning to predict diseases based on patient symptoms, organized into medical categories.
+    **🤖 AI-Powered Disease Prediction System**
     
-    **✨ Features:**
-    - 🎯 Real-time disease prediction with Top 7 possibilities
-    - 🔬 Symptom Pattern Analyzer to compare diseases
-    - 🩺 12 symptom categories with expandable sections
-    - 📊 Interactive visualizations
-    - 🤖 Random Forest ML model (70-80% average accuracy)
+    This system uses machine learning to predict diseases based on patient symptoms.
     
-    **🩺 Symptom Categories:**
-    - 🧠 Mental & Emotional (13 symptoms)
-    - ❤️ Cardiovascular (8 symptoms)
-    - 🫁 Respiratory (11 symptoms)
-    - 🍽️ Digestive (13 symptoms)
-    - 🧠 Neurological (8 symptoms)
-    - 🚽 Genitourinary (12 symptoms)
-    - 🦴 Musculoskeletal (13 symptoms)
-    - 🩻 Skin & Appearance (9 symptoms)
-    - 👁️ Eye & Vision (8 symptoms)
-    - 🦻 Ear, Nose & Throat (8 symptoms)
-    - 🩸 Systemic & General (10 symptoms)
-    - 👶 Pregnancy & Reproductive (10 symptoms)
+    ### 📊 Model Performance
+    - **Accuracy:** 82.2% on test data
+    - **Training Data:** 96,088 patient records
+    - **Symptoms:** 230 features
+    - **Diseases:** 100 conditions
     
-    **🛠️ Technology Stack:**
-    - **Frontend:** Streamlit
-    - **ML Framework:** Scikit-learn (Random Forest)
-    - **Visualization:** Plotly, Matplotlib
-    - **Data Source:** Kaggle API / Sample Data of 96,088 Pateints and 231 Symptoms
+    ### 🩺 Symptom Categories (12 categories, 113 symptoms)
+    - 🧠 Mental & Emotional (13)
+    - ❤️ Cardiovascular (8)
+    - 🫁 Respiratory (11)
+    - 🍽️ Digestive (13)
+    - 🧠 Neurological (8)
+    - 🚽 Genitourinary (12)
+    - 🦴 Musculoskeletal (13)
+    - 🩻 Skin & Appearance (9)
+    - 👁️ Eye & Vision (8)
+    - 🦻 Ear, Nose & Throat (8)
+    - 🩸 Systemic & General (10)
+    - 👶 Pregnancy & Reproductive (10)
     
-    **⚠️ Important Note:**
-    This tool is for **educational and demonstration purposes only**. 
-    It should not be used as a substitute for professional medical advice.
+    ⚠️ **Disclaimer:** For educational purposes only.
     """)
 
 # ============================================
@@ -748,22 +606,20 @@ def display_about():
 # ============================================
 
 def main():
-    st.title("🏥 Disease Prediction System")
-    st.markdown("*AI-Powered Medical Diagnosis Assistant*")
+    st.title("🏥 AI Disease Prediction System")
+    st.markdown("*Powered by Machine Learning | 96,088 Patient Records*")
     
+    # Load data
     if st.session_state.df is None:
-        with st.spinner("📊 Loading medical data..."):
-            st.session_state.df = load_data()
+        st.session_state.df = load_data()
     df = st.session_state.df
     
+    # Sidebar
     with st.sidebar:
         st.image("https://cdn-icons-png.flaticon.com/512/2968/2968621.png", width=80)
-        st.markdown("#  Navigation")
+        st.markdown("# Navigation")
         
-        page = st.radio(
-            "Select Page",
-            ["🔮 Disease Predictor", "🔬 Symptom Pattern Analyzer", "ℹ️ About"]
-        )
+        page = st.radio("Select Page", ["🔮 Disease Predictor", "🔬 Symptom Pattern Analyzer", "ℹ️ About"])
         
         st.markdown("---")
         st.markdown("### 📊 Dataset Info")
@@ -774,21 +630,22 @@ def main():
         st.markdown("---")
         
         if st.session_state.model_trained:
-            st.success(f"✅ Model Ready\nAccuracy: {st.session_state.model_accuracy*100:.1f}%")
+            st.success(f"✅ Model Ready\n{st.session_state.model_accuracy*100:.1f}% accuracy")
         else:
-            st.warning("⚠️ Model will train on Predictor page")
+            st.info("⚡ Loading model...")
         
         st.markdown("---")
         st.markdown("### 🩺 Categories")
-        for category in symptom_categories.keys():
+        for category in list(symptom_categories.keys())[:8]:  # Show first 8
             st.markdown(f"- {category}")
     
+    # Page routing
     if page == "🔮 Disease Predictor":
         display_predictor(df)
     elif page == "🔬 Symptom Pattern Analyzer":
-        symptom_cols = [col for col in df.columns if col != 'diseases']
+        symptom_cols = [c for c in df.columns if c != 'diseases']
         symptom_pattern_analyzer(df, symptom_cols)
-    elif page == "ℹ️ About":
+    else:
         display_about()
 
 if __name__ == "__main__":
